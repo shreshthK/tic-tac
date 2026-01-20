@@ -36,9 +36,6 @@ cd tic-tac
 
 # Install dependencies
 pnpm install
-
-# Build shared package
-pnpm --filter @tic-tac/shared build
 ```
 
 ### Development
