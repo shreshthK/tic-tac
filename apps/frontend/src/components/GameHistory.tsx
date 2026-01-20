@@ -5,51 +5,107 @@ export function GameHistory() {
 
   if (history.length === 0) {
     return (
-      <div className="p-4 bg-dark-800 rounded-lg">
-        <h3 className="text-sm font-semibold text-dark-400 uppercase tracking-wider mb-3">
-          Game History
+      <div className="panel-neon p-5">
+        <h3 className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-neon-cyan/60 mb-4">
+          Battle Log
         </h3>
-        <p className="text-dark-500 text-sm">No games played yet</p>
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="w-12 h-12 rounded-lg border border-white/10 flex items-center justify-center mb-3">
+            <span className="text-2xl opacity-30">?</span>
+          </div>
+          <p className="font-mono text-sm text-white/30">No battles yet</p>
+          <p className="font-mono text-[10px] text-white/20 mt-1">
+            Enter the arena to begin
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 bg-dark-800 rounded-lg">
-      <h3 className="text-sm font-semibold text-dark-400 uppercase tracking-wider mb-3">
-        Game History
-      </h3>
+    <div className="panel-neon p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-neon-cyan/60">
+          Battle Log
+        </h3>
+        <span className="font-mono text-[10px] text-white/30">
+          {history.length} {history.length === 1 ? 'battle' : 'battles'}
+        </span>
+      </div>
 
-      <div className="space-y-2 max-h-64 overflow-y-auto">
-        {history.map((game) => (
+      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+        {history.map((game, index) => (
           <div
             key={game.id}
-            className="flex items-center justify-between p-2 bg-dark-700 rounded hover:bg-dark-600 transition-colors"
+            className={`
+              group relative flex items-center justify-between p-3 rounded
+              bg-void-900/50 border border-white/5
+              hover:border-neon-cyan/20 hover:bg-void-800/50
+              transition-all duration-200
+              animate-slide-up
+            `}
+            style={{ animationDelay: `${index * 50}ms` }}
           >
+            {/* Left side: Symbol + Opponent */}
             <div className="flex items-center gap-3">
-              <span
+              {/* Player symbol badge */}
+              <div
                 className={`
-                  w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold
-                  ${game.playerSymbol === 'X' ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-400'}
+                  relative w-8 h-8 flex items-center justify-center rounded
+                  font-display text-sm font-black
+                  border transition-all duration-200
+                  ${game.playerSymbol === 'X'
+                    ? 'bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan group-hover:border-neon-cyan/50'
+                    : 'bg-plasma-pink/10 border-plasma-pink/30 text-plasma-pink group-hover:border-plasma-pink/50'
+                  }
                 `}
               >
                 {game.playerSymbol}
-              </span>
-              <span className="text-sm text-dark-300">
-                vs {game.opponentId.slice(0, 8)}...
-              </span>
+              </div>
+
+              {/* Opponent info */}
+              <div className="flex flex-col">
+                <span className="font-mono text-xs text-white/60 group-hover:text-white/80 transition-colors">
+                  vs {game.opponentId.slice(0, 8)}
+                </span>
+                <span className="font-mono text-[10px] text-white/20">
+                  {new Date(game.createdAt).toLocaleDateString()}
+                </span>
+              </div>
             </div>
 
-            <span
+            {/* Result badge */}
+            <div
               className={`
-                text-xs font-medium px-2 py-1 rounded
-                ${game.result === 'win' ? 'bg-green-500/20 text-green-400' : ''}
-                ${game.result === 'loss' ? 'bg-red-500/20 text-red-400' : ''}
-                ${game.result === 'draw' ? 'bg-yellow-500/20 text-yellow-400' : ''}
+                relative px-3 py-1 rounded font-display text-[10px] font-bold uppercase tracking-wider
+                border transition-all duration-200
+                ${game.result === 'win'
+                  ? 'bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan group-hover:border-neon-cyan/50 group-hover:shadow-neon-cyan-sm'
+                  : ''
+                }
+                ${game.result === 'loss'
+                  ? 'bg-plasma-pink/10 border-plasma-pink/30 text-plasma-pink group-hover:border-plasma-pink/50 group-hover:shadow-neon-pink-sm'
+                  : ''
+                }
+                ${game.result === 'draw'
+                  ? 'bg-electric-purple/10 border-electric-purple/30 text-electric-purple group-hover:border-electric-purple/50'
+                  : ''
+                }
               `}
             >
-              {game.result.toUpperCase()}
-            </span>
+              {game.result}
+            </div>
+
+            {/* Hover indicator line */}
+            <div
+              className={`
+                absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-0 rounded-full
+                group-hover:h-1/2 transition-all duration-200
+                ${game.result === 'win' ? 'bg-neon-cyan' : ''}
+                ${game.result === 'loss' ? 'bg-plasma-pink' : ''}
+                ${game.result === 'draw' ? 'bg-electric-purple' : ''}
+              `}
+            />
           </div>
         ))}
       </div>

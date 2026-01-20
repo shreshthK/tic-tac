@@ -5,11 +5,16 @@ export function UserStats() {
 
   if (!stats) {
     return (
-      <div className="p-4 bg-dark-800 rounded-lg">
-        <h3 className="text-sm font-semibold text-dark-400 uppercase tracking-wider mb-3">
-          Your Stats
+      <div className="panel-neon p-5">
+        <h3 className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-neon-cyan/60 mb-4">
+          Combat Stats
         </h3>
-        <p className="text-dark-500 text-sm">Loading...</p>
+        <div className="flex items-center justify-center h-24">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-neon-cyan/50 animate-pulse" />
+            <span className="font-mono text-sm text-white/30">Loading...</span>
+          </div>
+        </div>
       </div>
     );
   }
@@ -18,36 +23,84 @@ export function UserStats() {
   const winRate = total > 0 ? Math.round((stats.wins / total) * 100) : 0;
 
   return (
-    <div className="p-4 bg-dark-800 rounded-lg">
-      <h3 className="text-sm font-semibold text-dark-400 uppercase tracking-wider mb-3">
-        Your Stats
+    <div className="panel-neon p-5">
+      {/* Header */}
+      <h3 className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-neon-cyan/60 mb-5">
+        Combat Stats
       </h3>
 
-      <div className="grid grid-cols-3 gap-2 text-center mb-4">
-        <div className="bg-dark-700 rounded p-2">
-          <div className="text-2xl font-bold text-green-400">{stats.wins}</div>
-          <div className="text-xs text-dark-400">Wins</div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        {/* Wins */}
+        <div className="stat-card stat-card-win">
+          <div className="font-display text-3xl font-black text-neon-cyan text-glow-cyan">
+            {stats.wins}
+          </div>
+          <div className="font-mono text-[10px] uppercase tracking-wider text-white/40 mt-1">
+            Wins
+          </div>
         </div>
-        <div className="bg-dark-700 rounded p-2">
-          <div className="text-2xl font-bold text-red-400">{stats.losses}</div>
-          <div className="text-xs text-dark-400">Losses</div>
+
+        {/* Losses */}
+        <div className="stat-card stat-card-loss">
+          <div className="font-display text-3xl font-black text-plasma-pink text-glow-pink">
+            {stats.losses}
+          </div>
+          <div className="font-mono text-[10px] uppercase tracking-wider text-white/40 mt-1">
+            Losses
+          </div>
         </div>
-        <div className="bg-dark-700 rounded p-2">
-          <div className="text-2xl font-bold text-yellow-400">{stats.draws}</div>
-          <div className="text-xs text-dark-400">Draws</div>
+
+        {/* Draws */}
+        <div className="stat-card stat-card-draw">
+          <div className="font-display text-3xl font-black text-electric-purple">
+            {stats.draws}
+          </div>
+          <div className="font-mono text-[10px] uppercase tracking-wider text-white/40 mt-1">
+            Draws
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-dark-400">Win Rate</span>
-        <span className="font-medium">{winRate}%</span>
-      </div>
+      {/* Win Rate */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-xs uppercase tracking-wider text-white/40">
+            Win Rate
+          </span>
+          <span className="font-display text-lg font-bold text-neon-cyan">
+            {winRate}%
+          </span>
+        </div>
 
-      <div className="mt-2 h-2 bg-dark-700 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-green-500 transition-all duration-300"
-          style={{ width: `${winRate}%` }}
-        />
+        {/* Progress Bar */}
+        <div className="relative h-2 bg-void-800 rounded-full overflow-hidden">
+          {/* Background grid pattern */}
+          <div className="absolute inset-0 opacity-20">
+            <div
+              className="h-full"
+              style={{
+                backgroundImage: 'repeating-linear-gradient(90deg, transparent 0px, transparent 4px, rgba(0,240,255,0.3) 4px, rgba(0,240,255,0.3) 5px)',
+              }}
+            />
+          </div>
+
+          {/* Progress fill */}
+          <div
+            className="relative h-full transition-all duration-500 ease-out rounded-full"
+            style={{ width: `${winRate}%` }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-neon-cyan to-neon-cyan-dim rounded-full" />
+            <div className="absolute inset-0 bg-neon-cyan/50 blur-sm rounded-full" />
+          </div>
+        </div>
+
+        {/* Total games */}
+        <div className="text-center pt-2">
+          <span className="font-mono text-[10px] text-white/20 uppercase tracking-wider">
+            {total} Total Battles
+          </span>
+        </div>
       </div>
     </div>
   );
