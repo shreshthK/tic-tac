@@ -37,6 +37,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -105,12 +110,12 @@ jobs:
               "echo \"Commit: ${{ github.sha }}\"",
               "git fetch origin main",
               "git reset --hard origin/main",
-              "docker-compose down",
-              "docker-compose build --no-cache",
-              "docker-compose up -d",
+              "docker compose down",
+              "docker compose build --no-cache",
+              "docker compose up -d",
               "echo \"Waiting for containers to be healthy...\"",
               "sleep 10",
-              "docker-compose ps",
+              "docker compose ps",
               "echo \"Deployment completed at $(date)\""
             ]' \
             --timeout-seconds 600 \
@@ -202,13 +207,13 @@ jobs:
   #           git reset --hard origin/main
   #
   #           # Rebuild and restart containers
-  #           docker-compose down
-  #           docker-compose build --no-cache
-  #           docker-compose up -d
+  #           docker compose down
+  #           docker compose build --no-cache
+  #           docker compose up -d
   #
   #           # Wait for containers to be healthy
   #           sleep 10
-  #           docker-compose ps
+  #           docker compose ps
   #
   #           echo "Deployment completed at $(date)"
   #         DEPLOY_SCRIPT
@@ -246,11 +251,11 @@ jobs:
               "echo \"Starting rollback at $(date)\"",
               "git log --oneline -5",
               "git reset --hard HEAD~1",
-              "docker-compose down",
-              "docker-compose build --no-cache",
-              "docker-compose up -d",
+              "docker compose down",
+              "docker compose build --no-cache",
+              "docker compose up -d",
               "sleep 10",
-              "docker-compose ps",
+              "docker compose ps",
               "echo \"Rollback completed at $(date)\""
             ]' \
             --timeout-seconds 600
