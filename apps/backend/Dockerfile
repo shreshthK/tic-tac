@@ -40,9 +40,9 @@ RUN bun run build
 FROM oven/bun:1-slim AS runner
 WORKDIR /app
 
-# Create non-root user for security
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 bunjs
+# Create non-root user for security (Debian-based image uses groupadd/useradd)
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs bunjs
 
 # Copy built application
 COPY --from=builder /app/apps/backend/dist ./dist
