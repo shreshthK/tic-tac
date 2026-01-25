@@ -1,31 +1,22 @@
 # Backend Dockerfile - Bun + Hono server
 # Multi-stage build for optimized production image
 
-# Stage 1: Install dependencies
-FROM oven/bun:1 AS deps
+# Stage 1: Install dependencies and build
+FROM oven/bun:1 AS builder
 WORKDIR /app
 
-# Copy package files for dependency installation
+# Copy all package files for monorepo
 COPY package.json bun.lock* ./
 COPY apps/backend/package.json ./apps/backend/
 COPY packages/shared/package.json ./packages/shared/
+COPY pnpm-workspace.yaml ./
 
 # Install dependencies
 RUN bun install --frozen-lockfile
 
-# Stage 2: Build the application
-FROM oven/bun:1 AS builder
-WORKDIR /app
-
-# Copy dependencies from previous stage
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
-
 # Copy source files
 COPY packages/shared ./packages/shared
 COPY apps/backend ./apps/backend
-COPY package.json ./
 COPY tsconfig.base.json ./
 
 # Build shared package first
@@ -36,11 +27,11 @@ RUN bun run build
 WORKDIR /app/apps/backend
 RUN bun run build
 
-# Stage 3: Production runtime
+# Stage 2: Production runtime
 FROM oven/bun:1-slim AS runner
 WORKDIR /app
 
-# Create non-root user for security (Debian-based image uses groupadd/useradd)
+# Create non-root user for security
 RUN groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 --gid nodejs bunjs
 
