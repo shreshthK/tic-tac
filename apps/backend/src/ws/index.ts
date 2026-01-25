@@ -7,7 +7,7 @@ import {
   type PlayerConnection,
 } from './matchmaking';
 import { handleMove, handleDisconnect } from './game';
-import { getOrCreateBySession } from '../db/users';
+import { getOrCreateByIp } from '../db/users';
 import { getStats, getGameHistory } from '../db/users';
 
 export interface WebSocketData {
@@ -18,9 +18,8 @@ export async function handleOpen(
   ws: ServerWebSocket<WebSocketData>,
   ip: string
 ): Promise<void> {
-  // Create unique session for each connection (allows same IP to play against itself)
-  const sessionId = crypto.randomUUID();
-  const user = await getOrCreateBySession(sessionId, ip);
+  // Link user to IP address (same IP = same user with persistent stats)
+  const user = await getOrCreateByIp(ip);
   ws.data.userId = user.id;
 
   console.log(`User connected: ${user.id}`);
