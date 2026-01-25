@@ -5,19 +5,11 @@
 FROM oven/bun:1 AS builder
 WORKDIR /app
 
-# Copy all package files for monorepo
-COPY package.json bun.lock* ./
-COPY apps/backend/package.json ./apps/backend/
-COPY packages/shared/package.json ./packages/shared/
-COPY pnpm-workspace.yaml ./
+# Copy entire project for monorepo workspace resolution
+COPY . .
 
-# Install dependencies
-RUN bun install --frozen-lockfile
-
-# Copy source files
-COPY packages/shared ./packages/shared
-COPY apps/backend ./apps/backend
-COPY tsconfig.base.json ./
+# Install all dependencies at root level
+RUN bun install
 
 # Build shared package first
 WORKDIR /app/packages/shared

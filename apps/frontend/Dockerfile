@@ -1,38 +1,18 @@
 # Frontend Dockerfile - React + Vite application
 # Multi-stage build: Build with Node, serve with Nginx
 
-# Stage 1: Install dependencies
-FROM node:22-alpine AS deps
-WORKDIR /app
-
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
-
-# Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/frontend/package.json ./apps/frontend/
-COPY packages/shared/package.json ./packages/shared/
-
-# Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Stage 2: Build the application
+# Stage 1: Build the application
 FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 
-# Copy dependencies
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/frontend/node_modules ./apps/frontend/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+# Copy entire project for monorepo workspace resolution
+COPY . .
 
-# Copy source files
-COPY packages/shared ./packages/shared
-COPY apps/frontend ./apps/frontend
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY tsconfig.base.json ./
+# Install all dependencies
+RUN pnpm install --frozen-lockfile
 
 # Build shared package first
 WORKDIR /app/packages/shared
@@ -43,7 +23,7 @@ WORKDIR /app/apps/frontend
 ENV NODE_ENV=production
 RUN pnpm run build
 
-# Stage 3: Production - Serve with Nginx
+# Stage 2: Production - Serve with Nginx
 FROM nginx:alpine AS runner
 
 # Remove default nginx config
