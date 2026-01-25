@@ -106,6 +106,7 @@ jobs:
             --comment "GitHub Actions deployment - ${{ github.sha }}" \
             --parameters 'commands=[
               "set -e",
+              "export HOME=/root",
               "cd /home/ubuntu/tic-tac-toe",
               "git config --global --add safe.directory /home/ubuntu/tic-tac-toe",
               "echo \"Starting deployment at $(date)\"",
@@ -269,6 +270,7 @@ jobs:
             --comment "GitHub Actions rollback" \
             --parameters 'commands=[
               "set -e",
+              "export HOME=/root",
               "cd /home/ubuntu/tic-tac-toe",
               "git config --global --add safe.directory /home/ubuntu/tic-tac-toe",
               "echo \"Starting rollback at $(date)\"",
