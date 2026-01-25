@@ -24,7 +24,7 @@ export function Sidebar() {
           <h1 className="font-display text-2xl font-black tracking-wider">
             <span className="text-neon-cyan">NEON</span>
             <span className="text-white/80 mx-1">|</span>
-            <span className="text-plasma-pink">TTT</span>
+            <span className="text-plasma-pink">TTT0</span>
           </h1>
 
           {/* Subtitle */}
