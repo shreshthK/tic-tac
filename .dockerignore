@@ -1,0 +1,80 @@
+# .dockerignore - Exclude files from Docker build context
+# This speeds up builds and reduces image size
+
+# Version control
+.git
+.gitignore
+
+# Node modules (we install fresh in Docker)
+node_modules
+**/node_modules
+
+# Build outputs (we build fresh in Docker)
+dist
+**/dist
+.turbo
+**/.turbo
+
+# Development files
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE and editor files
+.idea
+.vscode
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test and coverage
+coverage
+.nyc_output
+*.test.ts
+*.spec.ts
+__tests__
+
+# Documentation (not needed in production image)
+*.md
+!README.md
+docs
+
+# Docker files (avoid recursive issues)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Environment files (secrets should be passed via env vars)
+.env
+.env.*
+!.env.example
+
+# Database files (should be mounted as volumes)
+*.db
+*.sqlite
+*.sqlite3
+data.db
+
+# SSL certificates (should be mounted as volumes)
+ssl/
+*.pem
+*.crt
+*.key
+
+# Temporary files
+tmp
+temp
+.cache
+
+# OS files
+Thumbs.db
+ehthumbs.db
+
+# Deployment and CI/CD configs
+.github
+aws_deployment.md
+AWS_DEPLOYMENT.md
+ARCHITECTURE.md

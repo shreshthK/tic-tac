@@ -14,8 +14,10 @@ app.get('/health', (c) => {
   return c.json({ status: 'healthy' });
 });
 
+const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
 const server = Bun.serve({
-  port: 3000,
+  port,
   fetch(req, server) {
     const url = new URL(req.url);
 

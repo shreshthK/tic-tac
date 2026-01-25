@@ -1,500 +1,751 @@
-# AWS EC2 Deployment Plan for Tic-Tac-Toe App
+# AWS EC2 Deployment Guide for Tic-Tac-Toe
 
-This plan covers deploying your Bun-based backend and React frontend to AWS EC2 using Docker containers, accessible via public IP address.
+This guide covers deploying the Tic-Tac-Toe application to AWS EC2 using Docker containers with GitHub Actions CI/CD.
 
-## Quick Decision Guide: Which CI/CD Method Should I Use?
+## Table of Contents
 
-**For Learning AWS Concepts (Recommended):**
-- **Option B: SSM (Systems Manager)** - Teaches IAM roles, SSM, CloudWatch, and is more secure than SSH
+1. [Quick Start](#quick-start)
+2. [Architecture Overview](#architecture-overview)
+3. [Prerequisites](#prerequisites)
+4. [Phase 1: AWS Account & EC2 Setup](#phase-1-aws-account--ec2-setup)
+5. [Phase 2: EC2 Instance Configuration](#phase-2-ec2-instance-configuration)
+6. [Phase 3: Deploy Application](#phase-3-deploy-application)
+7. [Phase 4: CI/CD Setup](#phase-4-cicd-setup)
+8. [Phase 5: Security Hardening](#phase-5-security-hardening)
+9. [Operations & Maintenance](#operations--maintenance)
+10. [Troubleshooting](#troubleshooting)
+11. [Appendix A: CI/CD Method Comparison](#appendix-a-cicd-method-comparison)
+12. [Appendix B: SSL/HTTPS Setup](#appendix-b-sslhttps-setup)
 
-**For Quickest Setup:**
-- **Option A: SSH** - Simplest, but less secure (requires opening SSH port)
+---
 
-**For Production/Enterprise:**
-- **Option C: CodeDeploy** - Built-in deployment tracking and rollback capabilities
+## Quick Start
 
-**For Container-First Approach:**
-- **Option D: ECR** - Store Docker images in AWS, better for multiple environments
+**Recommended setup for learning AWS:**
+- **CI/CD Method:** SSM (Systems Manager) - More secure, teaches IAM concepts
+- **Instance Type:** t2.micro (free tier eligible)
+- **OS:** Ubuntu 22.04 LTS
 
-**For Complex Workflows:**
-- **Option E: CodePipeline** - Fully managed AWS CI/CD service
+**Estimated setup:** Follow Phases 1-4 to get your application running.
 
-**Our Recommendation:** Start with **Option B (SSM)** as it teaches important AWS concepts (IAM, SSM, CloudWatch) while being more secure than SSH.
+---
 
 ## Architecture Overview
 
 ```
-GitHub Repository
-  ↓ (on push to main)
-GitHub Actions (CI/CD)
-  ├── Build & Test
-  ├── Build Docker Images
-  └── Deploy via SSH/SSM/CodeDeploy
-      ↓
-EC2 Instance (Public IP)
-  ├── Nginx (Port 80/443) - Reverse Proxy
-  │   ├── Serves Frontend Static Files
-  │   └── Proxies /ws → Backend WebSocket
-  ├── Frontend Container (React/Vite)
-  └── Backend Container (Bun/Hono)
-      └── SQLite Database (Persistent Volume)
+┌─────────────────────────────────────────────────────────────────┐
+│                        GitHub Repository                         │
+│                              │                                   │
+│                    (push to main branch)                         │
+└─────────────────────────────┬───────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      GitHub Actions                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │    Build     │───▶│     Test     │───▶│   Deploy     │       │
+│  └──────────────┘    └──────────────┘    └──────────────┘       │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ (via SSM/SSH)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    EC2 Instance (Public IP)                      │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                   Nginx (Port 80/443)                      │ │
+│  │                    Reverse Proxy                           │ │
+│  │  ┌────────────────────┬───────────────────────────────┐   │ │
+│  │  │    / (frontend)    │        /ws (websocket)        │   │ │
+│  │  └─────────┬──────────┴────────────────┬──────────────┘   │ │
+│  └────────────┼───────────────────────────┼──────────────────┘ │
+│               ▼                           ▼                     │
+│  ┌────────────────────┐      ┌────────────────────────┐        │
+│  │ Frontend Container │      │   Backend Container    │        │
+│  │   (React/Vite)     │      │    (Bun/Hono)          │        │
+│  │     Port 80        │      │     Port 3000          │        │
+│  └────────────────────┘      └──────────┬─────────────┘        │
+│                                         │                       │
+│                              ┌──────────▼─────────────┐        │
+│                              │   SQLite Database      │        │
+│                              │  (Persistent Volume)   │        │
+│                              └────────────────────────┘        │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+**Traffic Flow:**
+1. User accesses `http://<public-ip>/`
+2. Nginx receives request on port 80
+3. Static files (/) → proxied to Frontend container
+4. WebSocket (/ws) → proxied to Backend container with upgrade headers
+5. Backend reads/writes to SQLite database on persistent volume
+
+---
 
 ## Prerequisites
 
 - AWS Account (free tier eligible)
-- AWS CLI installed locally (optional, for easier management)
+- GitHub repository with your code
 - Basic terminal/SSH knowledge
-
-## Step-by-Step Deployment Guide
-
-### Phase 1: AWS Account & EC2 Setup
-
-1. **Create AWS Account**
-   - Sign up at https://aws.amazon.com
-   - Complete account verification
-   - Note: Free tier includes 750 hours/month of t2.micro EC2 instances
-
-2. **Create EC2 Instance**
-   - Go to EC2 Dashboard → Launch Instance
-   - Name: `tic-tac-toe-server`
-   - AMI: Ubuntu 22.04 LTS (free tier eligible)
-   - Instance Type: `t2.micro` (1 vCPU, 1 GB RAM) - free tier eligible
-   - Key Pair: Create new or use existing SSH key pair
-   - Network Settings:
-     - Allow SSH (port 22) from your IP
-     - Allow HTTP (port 80) from anywhere (0.0.0.0/0)
-     - Allow HTTPS (port 443) from anywhere (0.0.0.0/0) - optional
-   - Storage: 8 GB gp3 (free tier: 30 GB)
-   - Launch instance
-   - **Save the public IP address** shown after launch
-
-3. **Configure Security Group**
-   - EC2 → Security Groups → Select your instance's security group
-   - Inbound Rules should include:
-     - SSH (22) from your IP
-     - HTTP (80) from 0.0.0.0/0
-     - HTTPS (443) from 0.0.0.0/0 (optional)
-   - Outbound: Allow all (default)
-
-### Phase 2: Prepare Docker Configuration Files
-
-4. **Create Backend Dockerfile**
-   - File: `apps/backend/Dockerfile`
-   - Multi-stage build: install dependencies, build, run
-   - Expose port 3000
-   - Use Bun runtime
-   - Mount volume for SQLite database persistence
-
-5. **Create Frontend Dockerfile**
-   - File: `apps/frontend/Dockerfile`
-   - Build React app with Vite
-   - Serve static files with nginx
-   - Expose port 80
-
-6. **Create Docker Compose File**
-   - File: `docker-compose.yml` (root)
-   - Define backend and frontend services
-   - Configure volumes for database persistence
-   - Set up networking between containers
-
-7. **Create Nginx Configuration**
-   - File: `nginx.conf`
-   - Reverse proxy configuration
-   - Serve frontend static files
-   - Proxy `/ws` WebSocket connections to backend
-   - Handle HTTP → HTTPS redirect (optional)
-
-8. **Create Environment Configuration**
-   - File: `.env.example` for reference
-   - Document required environment variables
-   - Backend port, database path, etc.
-
-### Phase 3: Application Configuration Updates
-
-9. **Update Frontend WebSocket Connection**
-   - Modify `apps/frontend/src/hooks/useWebSocket.ts`
-   - Ensure WebSocket URL works with production setup
-   - Current code should work (uses `window.location.host`)
-
-10. **Create Production Build Scripts**
-    - Update `package.json` scripts if needed
-    - Ensure build commands work in Docker context
-
-### Phase 4: Deploy to EC2
-
-11. **Connect to EC2 Instance**
-    - SSH: `ssh -i your-key.pem ubuntu@<PUBLIC_IP>`
-    - Update system: `sudo apt update && sudo apt upgrade -y`
-
-12. **Install Docker & Docker Compose**
-    - Install Docker Engine
-    - Install Docker Compose plugin
-    - Add ubuntu user to docker group
-    - Verify installation
-
-13. **Transfer Application Files**
-    - Option A: Clone from Git repository
-    - Option B: Use `scp` to copy files
-    - Ensure all source files are present
-
-14. **Build and Run Containers**
-    - Run `docker-compose build`
-    - Run `docker-compose up -d`
-    - Verify containers are running
-
-15. **Set Up Nginx Reverse Proxy**
-    - Install nginx on host (not in container)
-    - Configure nginx to proxy to frontend container
-    - Configure WebSocket proxy for `/ws` endpoint
-    - Test configuration and restart nginx
-
-16. **Configure Database Persistence**
-    - Ensure SQLite database file persists in Docker volume
-    - Test database writes survive container restarts
-
-17. **Set Up Auto-Start on Reboot**
-    - Configure Docker Compose to start on boot
-    - Use systemd service or Docker restart policies
-
-### Phase 5: Testing & Verification
-
-18. **Test Application**
-    - Access via `http://<PUBLIC_IP>`
-    - Test WebSocket connection
-    - Play a game to verify functionality
-    - Check database persistence
-
-19. **Monitor Logs**
-    - View container logs: `docker-compose logs`
-    - Check nginx logs: `/var/log/nginx/`
-    - Monitor EC2 instance metrics in AWS Console
-
-### Phase 6: CI/CD Setup with GitHub Actions
-
-**Choose Your Deployment Method:**
-
-There are several approaches to deploy from GitHub to AWS EC2. Choose the one that best fits your needs:
-
-#### Option A: SSH Deployment (Simplest, Current Plan)
-- **Pros**: Simple, direct, no additional AWS services needed
-- **Cons**: Requires opening SSH port, managing SSH keys
-- **Best for**: Learning AWS basics, quick setup
-
-#### Option B: AWS Systems Manager (SSM) Session Manager (Recommended)
-- **Pros**: More secure (no SSH port needed), uses AWS IAM, audit logs
-- **Cons**: Requires SSM agent setup, IAM roles
-- **Best for**: Production deployments, better security
-- **How it works**: GitHub Actions uses AWS SDK to send commands via SSM
-
-#### Option C: AWS CodeDeploy
-- **Pros**: Native AWS service, built-in rollback, deployment tracking
-- **Cons**: More complex setup, requires CodeDeploy agent
-- **Best for**: Enterprise deployments, need deployment history
-- **How it works**: GitHub Actions triggers CodeDeploy, which deploys to EC2
-
-#### Option D: Docker Registry Approach (ECR)
-- **Pros**: Clean separation, images stored in AWS, can reuse images
-- **Cons**: Requires ECR setup, more moving parts
-- **Best for**: Container-first approach, multiple environments
-- **How it works**: Build images in GitHub Actions → Push to ECR → EC2 pulls and runs
-
-#### Option E: AWS CodePipeline (Full CI/CD)
-- **Pros**: Fully managed, integrates with many AWS services
-- **Cons**: More complex, potentially more expensive
-- **Best for**: Complex workflows, multiple environments
-- **How it works**: GitHub → CodePipeline → CodeBuild → CodeDeploy → EC2
-
-**For learning AWS concepts, we recommend Option B (SSM) as it teaches IAM roles, SSM, and is more secure than SSH.**
+- (Optional) AWS CLI installed locally
 
 ---
 
-20. **Prepare EC2 for Automated Deployment** (Choose based on selected option above)
+## Phase 1: AWS Account & EC2 Setup
 
-**For SSH Method (Option A):**
-- Create deployment user on EC2 (or use ubuntu user)
-- Generate SSH key pair for GitHub Actions
-- Add public key to EC2 `~/.ssh/authorized_keys`
-- Test SSH connection from local machine
-- Create deployment directory structure on EC2
+### 1.1 Create AWS Account
 
-**For SSM Method (Option B - Recommended):**
-- Ensure SSM agent is installed (pre-installed on Amazon Linux 2, Ubuntu 22.04)
-- Create IAM role for EC2 instance:
-  - Go to IAM → Roles → Create Role
-  - Select "EC2" as service
-  - Attach policy: `AmazonSSMManagedInstanceCore`
-  - Name: `EC2-SSM-Role`
-- Attach IAM role to EC2 instance:
-  - EC2 → Instances → Select instance → Actions → Security → Modify IAM role
-  - Select the created role
-- Create IAM user for GitHub Actions:
-  - IAM → Users → Create User
-  - Attach policy: `AmazonSSMFullAccess` (or create custom policy with SSM permissions)
-  - Create access keys for this user
-  - Save access key ID and secret (needed for GitHub secrets)
-- Create deployment script on EC2: `~/deploy.sh`
-- Test SSM connection: `aws ssm send-command --instance-ids <INSTANCE_ID> --document-name "AWS-RunShellScript" --parameters commands="echo 'test'"`
+1. Sign up at https://aws.amazon.com
+2. Complete identity verification
+3. Add payment method (free tier won't charge if you stay within limits)
 
-**For CodeDeploy Method (Option C):**
-- Install CodeDeploy agent on EC2
-- Create IAM role for EC2 with CodeDeploy permissions
-- Create CodeDeploy application and deployment group
-- Create `appspec.yml` file in repository root
+**Free Tier Includes:**
+- 750 hours/month of t2.micro EC2 instances (first 12 months)
+- 30 GB of EBS storage
+- 15 GB of outbound data transfer
 
-**For ECR Method (Option D):**
-- Create ECR repository for Docker images
-- Set up IAM roles for EC2 and GitHub Actions
-- Configure EC2 to pull from ECR
-- Use SSM to trigger image pull and container restart
+### 1.2 Create EC2 Instance
 
-**For CodePipeline Method (Option E):**
-- Set up CodePipeline in AWS Console
-- Connect GitHub repository as source
-- Configure CodeBuild for building
-- Configure CodeDeploy for deployment
+1. Go to **EC2 Dashboard** → **Launch Instance**
 
-21. **Configure GitHub Repository**
-- Ensure code is pushed to GitHub repository
-- Go to Repository → Settings → Secrets and variables → Actions
-- Add secrets based on chosen deployment method:
+2. **Configure instance:**
 
-**For SSH (Option A):**
-- `EC2_HOST`: Public IP or Elastic IP of EC2 instance
-- `EC2_USER`: SSH username (usually `ubuntu`)
-- `EC2_SSH_KEY`: Private SSH key content (the .pem file content)
-- `EC2_SSH_KEY_PASSPHRASE`: If SSH key has passphrase (optional)
+   | Setting | Value |
+   |---------|-------|
+   | Name | `tic-tac-toe-server` |
+   | AMI | Ubuntu 22.04 LTS (free tier eligible) |
+   | Instance Type | `t2.micro` (1 vCPU, 1 GB RAM) |
+   | Key Pair | Create new → Download `.pem` file → **Save securely!** |
 
-**For SSM (Option B):**
-- `AWS_ACCESS_KEY_ID`: AWS access key with SSM permissions
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region (e.g., `us-east-1`)
-- `EC2_INSTANCE_ID`: EC2 instance ID (e.g., `i-0123456789abcdef0`)
+3. **Network Settings** → Edit:
+   - Allow SSH (port 22) from **My IP** (more secure)
+   - Allow HTTP (port 80) from **Anywhere** (0.0.0.0/0)
+   - Allow HTTPS (port 443) from **Anywhere** (optional)
 
-**For CodeDeploy (Option C):**
-- `AWS_ACCESS_KEY_ID`: AWS access key
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region
-- `CODE_DEPLOY_APPLICATION_NAME`: CodeDeploy application name
-- `CODE_DEPLOY_DEPLOYMENT_GROUP`: Deployment group name
+4. **Storage:** 8 GB gp3 (you have 30 GB free tier available)
 
-**For ECR (Option D):**
-- `AWS_ACCESS_KEY_ID`: AWS access key with ECR permissions
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region
-- `ECR_REPOSITORY`: ECR repository name
-- `EC2_HOST`: EC2 instance IP (for triggering pull)
+5. Click **Launch Instance**
 
-**For CodePipeline (Option E):**
-- `AWS_ACCESS_KEY_ID`: AWS access key
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region
+6. **Save your Public IP address** from the instance details page
 
-22. **Create GitHub Actions Workflow**
-- File: `.github/workflows/deploy.yml`
-- Workflow triggers: On push to `main` branch (or specific branches)
-- Steps vary based on chosen deployment method:
+### 1.3 Create Elastic IP (Recommended)
 
-**Common Steps (all methods):**
-1. **Checkout code**: Get latest code from repository
-2. **Set up pnpm**: Install pnpm package manager
-3. **Install dependencies**: Run `pnpm install` for all workspaces
-4. **Run tests**: Execute test suite (if configured)
-5. **Build application**: Build frontend and backend
+Elastic IPs prevent your public IP from changing when you stop/start the instance.
 
-**Deploy Steps by Method:**
+1. Go to **EC2** → **Elastic IPs** → **Allocate Elastic IP address**
+2. Select the new Elastic IP → **Actions** → **Associate Elastic IP address**
+3. Select your instance → **Associate**
 
-**Option A - SSH:**
-- Set up SSH connection using GitHub secrets
-- SSH into EC2 and execute deployment commands:
-  - Navigate to application directory
-  - Pull latest code: `git pull origin main`
-  - Stop containers: `docker-compose down`
-  - Build new images: `docker-compose build --no-cache`
-  - Start containers: `docker-compose up -d`
-  - Health check and verify deployment
+**Note:** Elastic IPs are free while associated with a running instance. You're charged if the instance is stopped.
 
-**Option B - SSM (Recommended):**
-- Configure AWS credentials in GitHub Actions
-- Use `aws ssm send-command` to execute deployment script on EC2
-- Or use `aws ssm start-session` for interactive deployment
-- Deployment script on EC2 handles: git pull, docker-compose operations
-- More secure: No SSH port needed, uses IAM roles
+---
 
-**Option C - CodeDeploy:**
-- Build application artifacts
-- Create deployment package (zip file)
-- Upload to S3
-- Trigger CodeDeploy deployment via AWS CLI
-- CodeDeploy agent on EC2 handles deployment
-- Built-in rollback and deployment tracking
+## Phase 2: EC2 Instance Configuration
 
-**Option D - ECR:**
-- Build Docker images
-- Authenticate with ECR
-- Push images to ECR repository
-- Use SSM or CodeDeploy to trigger EC2 to:
-  - Pull latest images from ECR
-  - Restart containers with new images
-- Clean separation: images stored in AWS
+### 2.1 Connect to Your Instance
 
-**Option E - CodePipeline:**
-- GitHub webhook triggers CodePipeline
-- CodePipeline orchestrates: CodeBuild → CodeDeploy
-- Fully managed by AWS
-- More complex but powerful
+```bash
+# Set correct permissions on key file
+chmod 400 your-key.pem
 
-- Include error handling and rollback capability
-- Add workflow status badges to README (optional)
+# Connect via SSH
+ssh -i your-key.pem ubuntu@<YOUR_PUBLIC_IP>
+```
 
-23. **Test CI/CD Pipeline**
-- Make a small change to code
-- Push to `main` branch
-- Monitor GitHub Actions workflow execution
-- Verify deployment on EC2
-- Test application functionality
+### 2.2 Update System & Install Docker
 
-### Phase 7: Security & Maintenance
+Run these commands on your EC2 instance:
 
-24. **Security Hardening** (Optional but Recommended)
-- Set up firewall (UFW) on EC2
-- Configure fail2ban for SSH protection
-- Restrict SSH access to GitHub Actions IP ranges (optional)
-- Set up CloudWatch monitoring
-- Regular security updates
+```bash
+# Update system packages
+sudo apt update && sudo apt upgrade -y
 
-25. **Backup Strategy**
-- Backup SQLite database regularly
-- Consider using AWS S3 for backups
-- Document restore procedure
-- Automate backups via cron job or GitHub Actions
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
 
-## Files to Create/Modify
+# Add ubuntu user to docker group (avoids needing sudo)
+sudo usermod -aG docker ubuntu
 
-### New Files:
-- `apps/backend/Dockerfile` - Backend container definition
-- `apps/frontend/Dockerfile` - Frontend container definition  
-- `docker-compose.yml` - Multi-container orchestration
-- `nginx.conf` - Reverse proxy configuration
-- `.dockerignore` - Exclude unnecessary files from Docker builds
-- `.github/workflows/deploy.yml` - GitHub Actions CI/CD workflow
-- `AWS_DEPLOYMENT.md` - This deployment guide
+# Install Docker Compose plugin
+sudo apt install docker-compose-plugin -y
 
-### Files to Review:
-- `apps/frontend/src/hooks/useWebSocket.ts` - Verify WebSocket URL logic
-- `apps/backend/src/index.ts` - Verify port configuration
-- `package.json` scripts - Ensure build commands work
+# Log out and back in for group changes to take effect
+exit
+```
 
-## Important Notes
+Reconnect and verify installation:
 
-- **Public IP Changes**: EC2 public IPs change on stop/start. Use Elastic IP for permanent IP (free if instance is running)
-- **Database Persistence**: SQLite file must be in Docker volume to persist data
-- **WebSocket Support**: Nginx must be configured with proper WebSocket upgrade headers
-- **Resource Limits**: t2.micro has limited RAM (1GB) - monitor usage
-- **Cost**: Free tier covers 750 hours/month. Stop instance when not in use to avoid charges
+```bash
+ssh -i your-key.pem ubuntu@<YOUR_PUBLIC_IP>
+
+# Verify Docker
+docker --version
+docker compose version
+```
+
+### 2.3 Clone Repository
+
+```bash
+# Create application directory
+mkdir -p ~/tic-tac-toe
+cd ~/tic-tac-toe
+
+# Clone your repository
+git clone https://github.com/YOUR_USERNAME/tic-tac.git .
+
+# Or if using SSH
+git clone git@github.com:YOUR_USERNAME/tic-tac.git .
+```
+
+### 2.4 Set Up SSM Agent (For CI/CD)
+
+The SSM agent is pre-installed on Ubuntu 22.04, but we need to configure IAM.
+
+**On AWS Console:**
+
+1. **Create IAM Role for EC2:**
+   - Go to **IAM** → **Roles** → **Create role**
+   - Select **AWS service** → **EC2**
+   - Attach policy: `AmazonSSMManagedInstanceCore`
+   - Name: `EC2-SSM-Role`
+   - Create role
+
+2. **Attach Role to EC2 Instance:**
+   - Go to **EC2** → **Instances** → Select your instance
+   - **Actions** → **Security** → **Modify IAM role**
+   - Select `EC2-SSM-Role` → **Update IAM role**
+
+3. **Verify SSM Agent (on EC2):**
+   ```bash
+   sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service
+   ```
+
+---
+
+## Phase 3: Deploy Application
+
+### 3.1 Build and Start Containers
+
+On your EC2 instance:
+
+```bash
+cd ~/tic-tac-toe
+
+# Build all containers
+docker compose build
+
+# Start containers in detached mode
+docker compose up -d
+
+# Verify containers are running
+docker compose ps
+```
+
+Expected output:
+```
+NAME                IMAGE                    STATUS
+tic-tac-nginx       nginx:alpine            Up (healthy)
+tic-tac-frontend    tic-tac-toe-frontend    Up (healthy)
+tic-tac-backend     tic-tac-toe-backend     Up (healthy)
+```
+
+### 3.2 Verify Deployment
+
+```bash
+# Check container logs
+docker compose logs
+
+# Test health endpoints
+curl http://localhost/health        # Nginx health
+curl http://localhost:3000/health   # Backend health (internal)
+
+# Test from your browser
+# Open http://<YOUR_PUBLIC_IP>/
+```
+
+### 3.3 Set Up Auto-Start on Reboot
+
+The `docker-compose.yml` includes `restart: unless-stopped`, which handles most cases. For additional reliability:
+
+```bash
+# Enable Docker to start on boot
+sudo systemctl enable docker
+
+# Create systemd service for docker compose (optional)
+sudo tee /etc/systemd/system/tic-tac-toe.service > /dev/null <<EOF
+[Unit]
+Description=Tic-Tac-Toe Application
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/ubuntu/tic-tac-toe
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable tic-tac-toe.service
+```
+
+---
+
+## Phase 4: CI/CD Setup
+
+### 4.1 Create IAM User for GitHub Actions
+
+1. Go to **IAM** → **Users** → **Create user**
+2. Name: `github-actions-deploy`
+3. **Attach policies directly:**
+   - `AmazonSSMFullAccess` (or create a custom policy with limited permissions)
+4. **Create user** → **Security credentials** → **Create access key**
+5. Select **Application running outside AWS**
+6. **Save the Access Key ID and Secret Access Key securely!**
+
+### 4.2 Configure GitHub Secrets
+
+Go to your GitHub repository → **Settings** → **Secrets and variables** → **Actions**
+
+Add these secrets:
+
+| Secret Name | Value |
+|-------------|-------|
+| `AWS_ACCESS_KEY_ID` | Your IAM user access key ID |
+| `AWS_SECRET_ACCESS_KEY` | Your IAM user secret access key |
+| `AWS_REGION` | Your AWS region (e.g., `us-east-1`) |
+| `EC2_INSTANCE_ID` | Your EC2 instance ID (e.g., `i-0123456789abcdef0`) |
+
+**Finding your Instance ID:** EC2 → Instances → Copy from the Instance ID column
+
+### 4.3 Deploy via GitHub Actions
+
+The workflow file (`.github/workflows/deploy.yml`) is already configured. To deploy:
+
+1. Push changes to the `main` branch
+2. Go to **Actions** tab in GitHub to monitor the deployment
+3. The workflow will:
+   - Build and test the application
+   - Deploy to EC2 via SSM
+   - Verify the deployment
+
+### 4.4 Manual Deployment (Alternative)
+
+If you prefer to deploy manually without CI/CD:
+
+```bash
+# SSH into EC2
+ssh -i your-key.pem ubuntu@<YOUR_PUBLIC_IP>
+
+# Navigate to app directory
+cd ~/tic-tac-toe
+
+# Pull latest changes
+git pull origin main
+
+# Rebuild and restart
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+
+# Verify
+docker compose ps
+docker compose logs --tail=50
+```
+
+---
+
+## Phase 5: Security Hardening
+
+### 5.1 Configure UFW Firewall
+
+```bash
+# Enable UFW
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Allow SSH (use your IP for better security)
+sudo ufw allow from YOUR_IP to any port 22
+
+# Allow HTTP/HTTPS
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# Enable firewall
+sudo ufw enable
+
+# Verify rules
+sudo ufw status
+```
+
+### 5.2 Install Fail2ban
+
+Protects against brute-force SSH attacks:
+
+```bash
+sudo apt install fail2ban -y
+
+# Create local config
+sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+
+# Edit config
+sudo nano /etc/fail2ban/jail.local
+```
+
+Add/modify:
+```ini
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600
+```
+
+```bash
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+```
+
+### 5.3 Secure SQLite Database
+
+```bash
+# Set proper permissions on the data volume
+docker exec tic-tac-backend chmod 600 /app/data/data.db
+
+# Verify
+docker exec tic-tac-backend ls -la /app/data/
+```
+
+### 5.4 Regular Security Updates
+
+Create a cron job for automatic security updates:
+
+```bash
+sudo apt install unattended-upgrades -y
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+
+---
+
+## Operations & Maintenance
+
+### Viewing Logs
+
+```bash
+# All container logs
+docker compose logs
+
+# Specific container logs
+docker compose logs backend
+docker compose logs frontend
+docker compose logs nginx
+
+# Follow logs in real-time
+docker compose logs -f
+
+# Last 100 lines
+docker compose logs --tail=100
+```
+
+### Database Backup
+
+```bash
+# Create backup directory
+mkdir -p ~/backups
+
+# Backup SQLite database
+docker exec tic-tac-backend cat /app/data/data.db > ~/backups/data-$(date +%Y%m%d-%H%M%S).db
+
+# Automated daily backup (add to crontab)
+crontab -e
+# Add: 0 2 * * * docker exec tic-tac-backend cat /app/data/data.db > /home/ubuntu/backups/data-$(date +\%Y\%m\%d).db
+```
+
+### Rollback Procedure
+
+**Via GitHub Actions:**
+1. Go to **Actions** tab
+2. Select **Build and Deploy** workflow
+3. Click **Run workflow** → Select **rollback** job
+
+**Manual Rollback:**
+```bash
+cd ~/tic-tac-toe
+
+# View recent commits
+git log --oneline -10
+
+# Rollback to specific commit
+git reset --hard <COMMIT_HASH>
+
+# Or rollback one commit
+git reset --hard HEAD~1
+
+# Rebuild and restart
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+### Zero-Downtime Updates
+
+For updates without downtime:
+
+```bash
+# Update containers one at a time
+docker compose up -d --no-deps --build backend
+docker compose up -d --no-deps --build frontend
+
+# Reload nginx without dropping connections
+docker compose exec nginx nginx -s reload
+```
+
+### Monitoring
+
+**Check resource usage:**
+```bash
+# Container stats
+docker stats
+
+# System resources
+htop
+df -h
+free -h
+```
+
+**Set up CloudWatch (optional):**
+1. Install CloudWatch agent on EC2
+2. Configure metrics collection
+3. Set up alarms for CPU, memory, disk usage
+
+---
 
 ## Troubleshooting
 
-- **Can't connect**: Check security group rules
-- **WebSocket fails**: Verify nginx WebSocket proxy configuration
-- **Database resets**: Check Docker volume mounting
-- **High memory usage**: Consider upgrading to t2.small or optimize containers
-- **CI/CD fails**: 
-  - **SSH Method**: Verify GitHub secrets are correctly set, check SSH key permissions (should be 600), verify EC2 security group allows SSH from GitHub Actions IPs
-  - **SSM Method**: Verify IAM roles are attached, check SSM agent is running (`sudo systemctl status amazon-ssm-agent`), verify IAM user has correct permissions, check CloudWatch logs for SSM command execution
-  - **CodeDeploy**: Verify CodeDeploy agent is running, check IAM roles, verify `appspec.yml` is correct
-  - **General**: Check GitHub Actions logs for specific error messages, ensure deployment script has execute permissions, verify AWS credentials are valid
+### Common Issues
 
-## CI/CD Workflow Details
+#### Can't Connect to Application
 
-### Deployment Method Comparison
+```bash
+# Check containers are running
+docker compose ps
 
-| Method | Security | Complexity | AWS Services Used | Best For |
-|--------|----------|------------|-------------------|----------|
-| **SSH** | Medium | Low | EC2 only | Learning, quick setup |
-| **SSM** | High | Medium | EC2, IAM, SSM | Production, security-focused |
-| **CodeDeploy** | High | Medium | EC2, CodeDeploy, S3 | Enterprise, deployment tracking |
+# Check nginx is listening
+sudo netstat -tlnp | grep :80
+
+# Check security group in AWS Console allows port 80
+
+# Check UFW isn't blocking
+sudo ufw status
+```
+
+#### WebSocket Connection Fails
+
+```bash
+# Check backend container logs
+docker compose logs backend
+
+# Verify nginx WebSocket config
+docker compose exec nginx cat /etc/nginx/nginx.conf | grep -A20 "location /ws"
+
+# Test WebSocket directly
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" http://localhost/ws
+```
+
+#### Database Resets on Restart
+
+```bash
+# Check volume exists
+docker volume ls | grep backend-data
+
+# Check volume is mounted
+docker inspect tic-tac-backend | grep -A10 Mounts
+
+# Verify data persists
+docker exec tic-tac-backend ls -la /app/data/
+```
+
+#### High Memory Usage
+
+```bash
+# Check which container is using memory
+docker stats --no-stream
+
+# Consider upgrading to t2.small or t3.small for 2GB RAM
+
+# Or optimize container memory limits in docker-compose.yml:
+# deploy:
+#   resources:
+#     limits:
+#       memory: 256M
+```
+
+#### CI/CD Deployment Fails
+
+**SSM Issues:**
+```bash
+# Check SSM agent status
+sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service
+
+# Restart SSM agent
+sudo systemctl restart snap.amazon-ssm-agent.amazon-ssm-agent.service
+
+# Verify IAM role is attached (AWS Console)
+# Check CloudWatch logs for SSM command execution
+```
+
+**Permission Issues:**
+```bash
+# Ensure ubuntu user owns the app directory
+sudo chown -R ubuntu:ubuntu ~/tic-tac-toe
+
+# Ensure ubuntu is in docker group
+groups ubuntu
+```
+
+---
+
+## Appendix A: CI/CD Method Comparison
+
+| Method | Security | Complexity | AWS Services | Best For |
+|--------|----------|------------|--------------|----------|
+| **SSM** (Recommended) | High | Medium | EC2, IAM, SSM | Production, learning AWS |
+| **SSH** | Medium | Low | EC2 only | Quick setup, simple needs |
+| **CodeDeploy** | High | Medium-High | EC2, CodeDeploy, S3 | Enterprise, deployment history |
 | **ECR** | High | Medium-High | EC2, ECR, IAM | Container-first, multiple envs |
-| **CodePipeline** | High | High | Multiple AWS services | Complex workflows |
+| **CodePipeline** | High | High | Multiple services | Complex workflows |
 
-### GitHub Actions Workflow Flow (SSH Method)
+### SSH Method Setup (Alternative)
 
-1. **Trigger**: Push to `main` branch
-2. **Build Phase**:
-   - Checkout repository
-   - Install pnpm and dependencies
-   - Run linting/tests (if configured)
-   - Build frontend and backend
-3. **Deploy Phase**:
-   - Connect to EC2 via SSH using secrets
-   - Pull latest code or transfer built artifacts
-   - Stop running containers gracefully
-   - Build new Docker images
-   - Start containers with new images
-   - Health check to verify deployment
-   - Send notification on success/failure (optional)
+If you prefer SSH over SSM:
 
-### GitHub Actions Workflow Flow (SSM Method - Recommended)
+1. **Generate SSH key pair:**
+   ```bash
+   ssh-keygen -t ed25519 -C "github-actions" -f github-deploy-key
+   ```
 
-1. **Trigger**: Push to `main` branch
-2. **Build Phase**: Same as SSH method
-3. **Deploy Phase**:
-   - Configure AWS credentials in workflow
-   - Use AWS CLI to send SSM command to EC2
-   - EC2 executes deployment script via SSM agent
-   - No SSH port needed, uses IAM for authentication
-   - All commands logged in CloudWatch
-   - More secure and AWS-native approach
+2. **Add public key to EC2:**
+   ```bash
+   cat github-deploy-key.pub >> ~/.ssh/authorized_keys
+   ```
 
-### GitHub Secrets Configuration
+3. **Add GitHub Secrets:**
+   - `EC2_HOST`: Your EC2 public IP
+   - `EC2_USER`: `ubuntu`
+   - `EC2_SSH_KEY`: Contents of `github-deploy-key` (private key)
 
-**For SSH Method (Option A):**
-- `EC2_HOST`: EC2 instance public IP or Elastic IP
-- `EC2_USER`: SSH username (typically `ubuntu`)
-- `EC2_SSH_KEY`: Complete content of private SSH key (.pem file)
-- `EC2_SSH_KEY_PASSPHRASE`: Only if SSH key has passphrase
+4. **Uncomment SSH job in workflow:**
+   Edit `.github/workflows/deploy.yml` and uncomment the `deploy-ssh` job.
 
-**For SSM Method (Option B - Recommended):**
-- `AWS_ACCESS_KEY_ID`: AWS access key with SSM permissions
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region (e.g., `us-east-1`)
-- `EC2_INSTANCE_ID`: EC2 instance ID (e.g., `i-0123456789abcdef0`)
+---
 
-**For CodeDeploy Method (Option C):**
-- `AWS_ACCESS_KEY_ID`: AWS access key with CodeDeploy permissions
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region
-- `CODE_DEPLOY_APPLICATION_NAME`: CodeDeploy application name
-- `CODE_DEPLOY_DEPLOYMENT_GROUP`: Deployment group name
+## Appendix B: SSL/HTTPS Setup
 
-**For ECR Method (Option D):**
-- `AWS_ACCESS_KEY_ID`: AWS access key with ECR permissions
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region
-- `ECR_REPOSITORY`: ECR repository name
-- `EC2_INSTANCE_ID`: EC2 instance ID (for SSM commands)
+### Using Let's Encrypt (Free SSL)
 
-### Deployment Strategy
+1. **Install Certbot:**
+   ```bash
+   sudo apt install certbot -y
+   ```
 
-- **Zero-downtime**: Use `docker-compose up -d --no-deps` to update containers individually
-- **Rollback**: Keep previous Docker images, can rollback by restarting old containers
-- **Database migrations**: Run migrations as part of deployment script if needed
-- **Health checks**: Verify containers start successfully before marking deployment complete
-- **Notifications**: Optional Slack/Discord/email notifications on deployment status
+2. **Get certificate:**
+   ```bash
+   # Stop nginx temporarily
+   docker compose stop nginx
 
-### Alternative: Deploy Script on EC2
+   # Get certificate (replace with your domain)
+   sudo certbot certonly --standalone -d yourdomain.com
 
-Instead of running commands directly in GitHub Actions, create a deployment script on EC2:
-- File: `~/deploy.sh` on EC2
-- Script handles: git pull, docker-compose operations, health checks
-- GitHub Actions just triggers the script via SSH/SSM
-- Easier to maintain and test locally
+   # Certificates will be at:
+   # /etc/letsencrypt/live/yourdomain.com/fullchain.pem
+   # /etc/letsencrypt/live/yourdomain.com/privkey.pem
+   ```
 
-## Next Steps After Deployment
+3. **Create SSL directory and copy certs:**
+   ```bash
+   mkdir -p ~/tic-tac-toe/ssl
+   sudo cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem ~/tic-tac-toe/ssl/
+   sudo cp /etc/letsencrypt/live/yourdomain.com/privkey.pem ~/tic-tac-toe/ssl/
+   sudo chown ubuntu:ubuntu ~/tic-tac-toe/ssl/*
+   ```
 
-- Set up Elastic IP for permanent address
-- Configure CloudWatch alarms
-- Set up automated backups
-- Consider adding SSL certificate (Let's Encrypt) for HTTPS
-- Add deployment notifications (Slack, email, etc.)
-- Set up staging environment for testing before production
+4. **Update nginx.conf:**
+   Uncomment the HTTPS server block in `nginx.conf` and update paths.
+
+5. **Restart containers:**
+   ```bash
+   docker compose up -d
+   ```
+
+6. **Auto-renewal:**
+   ```bash
+   # Test renewal
+   sudo certbot renew --dry-run
+
+   # Add cron job for renewal
+   sudo crontab -e
+   # Add: 0 3 * * * certbot renew --quiet && docker compose -f /home/ubuntu/tic-tac-toe/docker-compose.yml exec nginx nginx -s reload
+   ```
+
+---
+
+## Environment Variables Reference
+
+See `.env.example` for all available configuration options:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NODE_ENV` | `production` | Application environment |
+| `PORT` | `3000` | Backend server port |
+| `DATABASE_PATH` | `/app/data/data.db` | SQLite database file path |
+| `CORS_ORIGIN` | (empty) | Allowed CORS origins |
+
+---
+
+## Cost Estimation (Free Tier)
+
+For the first 12 months with AWS Free Tier:
+
+| Resource | Free Tier | Our Usage | Cost |
+|----------|-----------|-----------|------|
+| EC2 t2.micro | 750 hours/month | 720 hours | Free |
+| EBS Storage | 30 GB | 8 GB | Free |
+| Data Transfer | 15 GB/month | ~1 GB | Free |
+| Elastic IP | Free if attached | 1 | Free |
+
+**After Free Tier:** Approximately $8-15/month for t2.micro running 24/7.
+
+---
+
+## Quick Reference Commands
+
+```bash
+# Start application
+docker compose up -d
+
+# Stop application
+docker compose down
+
+# View logs
+docker compose logs -f
+
+# Rebuild and restart
+docker compose down && docker compose build --no-cache && docker compose up -d
+
+# Check container status
+docker compose ps
+
+# Enter container shell
+docker compose exec backend sh
+docker compose exec frontend sh
+
+# Database backup
+docker exec tic-tac-backend cat /app/data/data.db > backup.db
+
+# Update from git
+git pull origin main && docker compose build && docker compose up -d
+```

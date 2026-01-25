@@ -2,7 +2,8 @@ import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema';
 
-const sqlite = new Database('./data.db');
+const databasePath = process.env.DATABASE_PATH || './data.db';
+const sqlite = new Database(databasePath);
 
 // Create tables if they don't exist
 sqlite.exec(`
